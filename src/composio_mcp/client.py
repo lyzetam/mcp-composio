@@ -112,12 +112,16 @@ class ComposioClient:
 
     async def get_toolkit_tools(self, toolkit_slug: str) -> list[ToolkitTool]:
         """List tools/actions available for a toolkit."""
-        data = await self._request("GET", f"/toolkits/{toolkit_slug}/tools")
+        # v3 toolkit tools endpoint doesn't exist; use v2 actions with apps filter
+        url = "https://backend.composio.dev/api/v2/actions"
+        response = await self._client.get(url, params={"apps": toolkit_slug, "limit": 100})
+        response.raise_for_status()
+        data = response.json()
         items = data if isinstance(data, list) else data.get("items", data.get("tools", []))
         return [
             ToolkitTool(
-                action=t.get("action", t.get("name", "")),
-                display_name=t.get("display_name", t.get("name")),
+                action=t.get("name", t.get("action", "")),
+                display_name=t.get("display_name", t.get("displayName")),
                 description=t.get("description"),
                 parameters=t.get("parameters"),
             )
@@ -176,22 +180,28 @@ class ComposioClient:
             credentials: Custom OAuth credentials (client_id, client_secret) if not using managed auth
             scopes: OAuth scopes to request
         """
-        body: dict[str, Any] = {
-            "toolkit_slug": toolkit_slug,
+        options: dict[str, Any] = {
+            "type": "use_composio_managed_auth" if use_composio_auth else "use_custom_auth",
             "auth_scheme": auth_scheme,
-            "use_composio_auth": use_composio_auth,
         }
         if name:
-            body["name"] = name
+            options["name"] = name
         if credentials:
-            body["credentials"] = credentials
+            options["credentials"] = credentials
         if scopes:
-            body["scopes"] = scopes
+            options["credentials"] = {**(options.get("credentials") or {}), "scopes": scopes}
 
-        c = await self._request("POST", "/auth_configs", body=body)
+        body: dict[str, Any] = {
+            "toolkit": {"slug": toolkit_slug},
+            "options": options,
+        }
+
+        data = await self._request("POST", "/auth_configs", body=body)
+        # Response nests config under "auth_config" key
+        c = data.get("auth_config", data)
         return AuthConfig(
             id=c.get("id", ""),
-            toolkit_slug=c.get("toolkit_slug", toolkit_slug),
+            toolkit_slug=data.get("toolkit", {}).get("slug", toolkit_slug) if isinstance(data.get("toolkit"), dict) else c.get("toolkit_slug", toolkit_slug),
             auth_scheme=c.get("auth_scheme", auth_scheme),
             name=c.get("name", name),
             created_at=c.get("created_at"),
@@ -230,11 +240,12 @@ class ComposioClient:
             ConnectedAccount(
                 id=a.get("id", ""),
                 status=a.get("status", "UNKNOWN"),
-                toolkit_slug=a.get("toolkit_slug", a.get("app_name")),
-                auth_config_id=a.get("auth_config_id"),
+                toolkit_slug=(a.get("toolkit", {}).get("slug") if isinstance(a.get("toolkit"), dict) else None) or a.get("toolkit_slug", a.get("app_name")),
+                auth_config_id=(a.get("auth_config", {}).get("id") if isinstance(a.get("auth_config"), dict) else None) or a.get("auth_config_id"),
                 user_id=a.get("user_id", a.get("entity_id")),
                 created_at=a.get("created_at"),
                 updated_at=a.get("updated_at"),
+                deprecated_uuid=(a.get("deprecated", {}).get("uuid") if isinstance(a.get("deprecated"), dict) else None),
             )
             for a in items
         ]
@@ -245,11 +256,12 @@ class ComposioClient:
         return ConnectedAccount(
             id=a.get("id", connection_id),
             status=a.get("status", "UNKNOWN"),
-            toolkit_slug=a.get("toolkit_slug", a.get("app_name")),
-            auth_config_id=a.get("auth_config_id"),
+            toolkit_slug=(a.get("toolkit", {}).get("slug") if isinstance(a.get("toolkit"), dict) else None) or a.get("toolkit_slug", a.get("app_name")),
+            auth_config_id=(a.get("auth_config", {}).get("id") if isinstance(a.get("auth_config"), dict) else None) or a.get("auth_config_id"),
             user_id=a.get("user_id", a.get("entity_id")),
             created_at=a.get("created_at"),
             updated_at=a.get("updated_at"),
+            deprecated_uuid=(a.get("deprecated", {}).get("uuid") if isinstance(a.get("deprecated"), dict) else None),
         )
 
     async def initiate_connection(
@@ -269,14 +281,16 @@ class ComposioClient:
             callback_url: Where to redirect after OAuth completes
             config: Additional config (auth_scheme overrides, subdomain, etc.)
         """
-        body: dict[str, Any] = {
-            "auth_config_id": auth_config_id,
-            "user_id": user_id,
-        }
+        connection: dict[str, Any] = {"user_id": user_id}
         if callback_url:
-            body["callback_url"] = callback_url
+            connection["callback_url"] = callback_url
         if config:
-            body["config"] = config
+            connection.update(config)
+
+        body: dict[str, Any] = {
+            "auth_config": {"id": auth_config_id},
+            "connection": connection,
+        }
 
         data = await self._request("POST", "/connected_accounts", body=body)
         return ConnectionRequest(
@@ -298,12 +312,14 @@ class ComposioClient:
             user_id: User identifier
             callback_url: Where to redirect after completion
         """
-        body: dict[str, Any] = {
-            "auth_config_id": auth_config_id,
-            "user_id": user_id,
-        }
+        connection: dict[str, Any] = {"user_id": user_id}
         if callback_url:
-            body["callback_url"] = callback_url
+            connection["callback_url"] = callback_url
+
+        body: dict[str, Any] = {
+            "auth_config": {"id": auth_config_id},
+            "connection": connection,
+        }
 
         data = await self._request("POST", "/connected_accounts/link", body=body)
         return ConnectionRequest(
@@ -341,11 +357,23 @@ class ComposioClient:
 
         Args:
             action: The action name (e.g., 'INSTAGRAM_CREATE_MEDIA_CONTAINER')
-            connected_account_id: The connected account to use
+            connected_account_id: The connected account ID (v3 ca_* or deprecated UUID)
             params: Action input parameters
         """
+        # v2 execute requires deprecated UUIDs, not v3 ca_* IDs
+        account_id = connected_account_id
+        if connected_account_id.startswith("ca_"):
+            conn = await self.get_connection(connected_account_id)
+            if conn.deprecated_uuid:
+                account_id = conn.deprecated_uuid
+            else:
+                raise ValueError(
+                    f"Cannot resolve v3 ID {connected_account_id} to a UUID for v2 execute. "
+                    "Pass the deprecated UUID directly."
+                )
+
         body: dict[str, Any] = {
-            "connectedAccountId": connected_account_id,
+            "connectedAccountId": account_id,
             "input": params or {},
         }
         # Actions use v2 endpoint

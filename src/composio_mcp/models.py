@@ -41,6 +41,7 @@ class ConnectedAccount(BaseModel):
     user_id: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    deprecated_uuid: Optional[str] = None
 
 
 class ConnectionRequest(BaseModel):
