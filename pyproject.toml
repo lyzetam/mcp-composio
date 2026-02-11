@@ -1,7 +1,7 @@
 [project]
 name = "mcp-composio"
 version = "0.1.0"
-description = "Composio management MCP server for provisioning connections and auth configs"
+description = "Unified Composio MCP server: management + Notion (28 tools) + Zoom (9 tools)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

@@ -1,17 +1,20 @@
-"""Composio management client.
+"""Composio client library.
 
-Wraps the Composio REST API v3 for managing connections, auth configs,
-toolkits, and executing actions.
+Provides:
+- _BaseClient: shared base for domain-specific clients (Notion, Zoom, etc.)
+- ComposioClient: management client for auth configs, connections, toolkits
 
 Usage:
     from composio_mcp import ComposioClient
+    from composio_mcp.notion import NotionClient
+    from composio_mcp.zoom import ZoomClient
 
-    client = ComposioClient(api_key="ak_xxx")
-    # or
-    client = ComposioClient.from_env()
+    # Management
+    mgmt = ComposioClient.from_env()
 
-    toolkits = await client.list_toolkits()
-    connections = await client.list_connections()
+    # Domain clients
+    notion = NotionClient.from_env()
+    zoom = ZoomClient.from_env()
 """
 
 import json
@@ -27,6 +30,109 @@ from .models import (
     Toolkit,
     ToolkitTool,
 )
+
+
+def _load_api_key() -> Optional[str]:
+    """Load Composio API key from AWS Secrets Manager or environment."""
+    api_key = None
+    try:
+        import boto3
+        client = boto3.client("secretsmanager", region_name="us-east-1")
+        secret = json.loads(
+            client.get_secret_value(SecretId="composio/api-key")["SecretString"]
+        )
+        api_key = secret.get("api_key")
+    except Exception:
+        pass
+    return api_key or os.environ.get("COMPOSIO_API_KEY")
+
+
+def _load_secret() -> dict:
+    """Load the full composio/api-key secret as a dict."""
+    try:
+        import boto3
+        client = boto3.client("secretsmanager", region_name="us-east-1")
+        return json.loads(
+            client.get_secret_value(SecretId="composio/api-key")["SecretString"]
+        )
+    except Exception:
+        return {}
+
+
+class _BaseClient:
+    """Shared base for domain-specific Composio clients (Notion, Zoom, etc.).
+
+    Handles httpx setup, Composio v2 action execution, and credential loading.
+    """
+
+    COMPOSIO_BASE_URL = "https://backend.composio.dev/api/v2/actions"
+
+    def __init__(
+        self,
+        composio_api_key: str,
+        connected_account_id: str,
+        timeout: float = 30.0,
+    ):
+        self.composio_api_key = composio_api_key
+        self.connected_account_id = connected_account_id
+        self._client = httpx.AsyncClient(
+            headers={
+                "X-API-Key": composio_api_key,
+                "Content-Type": "application/json",
+            },
+            timeout=timeout,
+        )
+
+    @classmethod
+    def _from_env(cls, secret_key: str, env_key: str) -> "_BaseClient":
+        """Create client from AWS Secrets Manager or environment variables.
+
+        Args:
+            secret_key: Key in the composio/api-key secret for the connected account ID
+            env_key: Environment variable name for the connected account ID
+        """
+        secret = _load_secret()
+        api_key = secret.get("api_key") or os.environ.get("COMPOSIO_API_KEY")
+        account_id = secret.get(secret_key) or os.environ.get(env_key)
+
+        if not api_key or not account_id:
+            raise ValueError(
+                f"Missing credentials. Set COMPOSIO_API_KEY and {env_key} "
+                "or store in AWS Secrets Manager at composio/api-key"
+            )
+
+        return cls(composio_api_key=api_key, connected_account_id=account_id)
+
+    async def _execute(self, action: str, params: dict) -> dict:
+        """Execute a Composio action and return the unwrapped result."""
+        response = await self._client.post(
+            f"{self.COMPOSIO_BASE_URL}/{action}/execute",
+            json={
+                "connectedAccountId": self.connected_account_id,
+                "input": params,
+            },
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        if not data.get("successful"):
+            raise Exception(f"Action {action} failed: {data.get('error')}")
+
+        result = data["data"]
+        # Composio wraps some API responses under 'response_data'
+        if isinstance(result, dict) and "response_data" in result:
+            return result["response_data"]
+        return result
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self._client.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.close()
 
 
 class ComposioClient:
@@ -47,26 +153,12 @@ class ComposioClient:
     @classmethod
     def from_env(cls) -> "ComposioClient":
         """Create client from environment variables or AWS Secrets Manager."""
-        api_key = None
-
-        try:
-            import boto3
-            client = boto3.client("secretsmanager", region_name="us-east-1")
-            secret = json.loads(
-                client.get_secret_value(SecretId="composio/api-key")["SecretString"]
-            )
-            api_key = secret.get("api_key")
-        except Exception:
-            pass
-
-        api_key = api_key or os.environ.get("COMPOSIO_API_KEY")
-
+        api_key = _load_api_key()
         if not api_key:
             raise ValueError(
                 "Missing COMPOSIO_API_KEY. Set env var or store in "
                 "AWS Secrets Manager at composio/api-key"
             )
-
         return cls(api_key=api_key)
 
     async def _request(
