@@ -117,7 +117,7 @@ class ZoomClient(_BaseClient):
         agenda: Optional[str] = None,
     ) -> None:
         """Update a meeting."""
-        params = {"meetingId": meeting_id}
+        params = {"meetingId": meeting_id, "type": 2}
         if topic:
             params["topic"] = topic
         if start_time:
@@ -128,6 +128,13 @@ class ZoomClient(_BaseClient):
             params["agenda"] = agenda
 
         await self._execute("ZOOM_UPDATE_A_MEETING", params)
+
+    async def delete_meeting(self, meeting_id: int) -> None:
+        """Delete a meeting.
+
+        Note: Requires ZOOM_DELETE_A_MEETING action in Composio.
+        """
+        await self._execute("ZOOM_DELETE_A_MEETING", {"meetingId": meeting_id})
 
     async def add_registrant(
         self,
