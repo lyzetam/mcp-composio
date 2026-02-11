@@ -1,7 +1,36 @@
-"""Pydantic models for Composio management data."""
+"""Pydantic models for Composio.
+
+Management models are defined here. Domain models are in submodules.
+"""
 
 from typing import Any, Optional
+
 from pydantic import BaseModel, Field
+
+# Re-export domain models for convenience
+from .notion import (
+    Block,
+    BlockContent,
+    Comment,
+    Database,
+    DatabaseQuery,
+    DatabaseRow,
+    Page,
+    PageProperty,
+    SearchResult,
+    User,
+)
+from .zoom import (
+    Meeting,
+    MeetingCreate,
+    MeetingSummary,
+    Participant,
+    Recording,
+    RecordingFile,
+    Registrant,
+)
+
+# ============== MANAGEMENT MODELS ==============
 
 
 class Toolkit(BaseModel):
@@ -49,3 +78,32 @@ class ConnectionRequest(BaseModel):
     id: str
     status: str
     redirect_url: Optional[str] = None
+
+
+__all__ = [
+    # Management
+    "Toolkit",
+    "ToolkitTool",
+    "AuthConfig",
+    "ConnectedAccount",
+    "ConnectionRequest",
+    # Notion
+    "Page",
+    "PageProperty",
+    "Block",
+    "BlockContent",
+    "Database",
+    "DatabaseRow",
+    "DatabaseQuery",
+    "Comment",
+    "User",
+    "SearchResult",
+    # Zoom
+    "Meeting",
+    "MeetingCreate",
+    "Registrant",
+    "RecordingFile",
+    "Recording",
+    "Participant",
+    "MeetingSummary",
+]
