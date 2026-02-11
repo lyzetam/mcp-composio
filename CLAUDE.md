@@ -34,7 +34,7 @@ src/composio_mcp/
     notion.py        Page, Database, Block, Comment, User, SearchResult
     zoom.py          Meeting, Recording, Participant, MeetingSummary
 
-server.py            ONE MCP server: 14 management + 28 notion_* + 9 zoom_*
+server.py            ONE MCP server: 14 management + 28 notion_* + 10 zoom_*
 cli.py               Unified CLI: `notion` and `zoom` subcommands
 ```
 
@@ -92,7 +92,7 @@ All domain tools are prefixed: `notion_create_page`, `zoom_list_meetings`. Manag
 | `notion_list_users` | `NOTION_LIST_USERS` | Users |
 | `notion_search_workspace` | `NOTION_FETCH_DATA` | Workspace |
 
-### Zoom (9 tools)
+### Zoom (10 tools)
 
 | MCP Tool | Composio Action |
 |----------|-----------------|
@@ -100,6 +100,7 @@ All domain tools are prefixed: `notion_create_page`, `zoom_list_meetings`. Manag
 | `zoom_create_meeting` | `ZOOM_CREATE_A_MEETING` |
 | `zoom_get_meeting` | `ZOOM_GET_A_MEETING` |
 | `zoom_update_meeting` | `ZOOM_UPDATE_A_MEETING` |
+| `zoom_delete_meeting` | `ZOOM_DELETE_A_MEETING` (pending Composio support) |
 | `zoom_add_registrant` | `ZOOM_ADD_A_MEETING_REGISTRANT` |
 | `zoom_list_recordings` | `ZOOM_LIST_ALL_RECORDINGS` |
 | `zoom_get_recording` | `ZOOM_GET_MEETING_RECORDINGS` |

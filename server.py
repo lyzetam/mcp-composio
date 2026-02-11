@@ -774,6 +774,18 @@ async def zoom_update_meeting(
 
 
 @mcp.tool()
+async def zoom_delete_meeting(meeting_id: int) -> str:
+    """Delete a Zoom meeting.
+
+    Args:
+        meeting_id: The Zoom meeting ID to delete
+    """
+    zoom = get_zoom()
+    await zoom.delete_meeting(meeting_id)
+    return json.dumps({"status": "deleted", "meeting_id": meeting_id})
+
+
+@mcp.tool()
 async def zoom_add_registrant(
     meeting_id: int,
     email: str,
